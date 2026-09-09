@@ -1177,6 +1177,14 @@ jobs:
           prefix-key: rustdesk-lib-cache-android # TODO: drop '-android' part after caches are invalidated
           key: ${{ matrix.job.target }}
 
+      - name: Generate signed custom client configuration
+        if: ${{ env.CUSTOM_CLIENT_CONFIG_BASE64 != '' && env.RUSTDESK_CUSTOM_SECRET_KEY != '' && env.RUSTDESK_CUSTOM_PUBLIC_KEY != '' }}
+        shell: bash
+        run: |
+          printf '%s' "$CUSTOM_CLIENT_CONFIG_BASE64" | base64 --decode > custom-config.json
+          cargo run --locked --bin sign-custom-client -- sign custom-config.json custom.txt
+          cp custom.txt flutter/assets/custom.txt
+
       - name: Build rustdesk lib
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}

@@ -21,6 +21,17 @@ final class RgbaFrame extends Struct {
   external Pointer<Uint8> data;
 }
 
+Future<String> _loadBundledCustomClientConfig() async {
+  if (!isAndroid && !isIOS) {
+    return '';
+  }
+  try {
+    return await rootBundle.loadString('assets/custom.txt');
+  } catch (_) {
+    return '';
+  }
+}
+
 typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
 typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
 typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
@@ -231,9 +242,10 @@ class PlatformFFI {
       await _ffiBind.mainDeviceId(id: id);
       await _ffiBind.mainDeviceName(name: name);
       await _ffiBind.mainSetHomeDir(home: _homeDir);
+      final customClientConfig = await _loadBundledCustomClientConfig();
       await _ffiBind.mainInit(
         appDir: _dir,
-        customClientConfig: '',
+        customClientConfig: customClientConfig,
       );
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');

@@ -61,3 +61,4 @@ flutter/web/
 # Local custom client configuration; keep secrets and deployment settings out of Git.
 /custom-config.json
 /custom.txt
+/flutter/assets/custom.txt

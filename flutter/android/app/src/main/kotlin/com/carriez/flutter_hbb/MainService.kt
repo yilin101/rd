@@ -259,7 +259,14 @@ class MainService : Service() {
         val configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
         val homePath = applicationContext.getExternalFilesDir(null)?.absolutePath
             ?: applicationContext.filesDir.absolutePath
-        FFI.startServer(configPath, homePath, "")
+        val customClientConfig = try {
+            applicationContext.assets.open("flutter_assets/assets/custom.txt")
+                .bufferedReader()
+                .use { it.readText() }
+        } catch (_: Exception) {
+            ""
+        }
+        FFI.startServer(configPath, homePath, customClientConfig)
 
         createForegroundNotification()
     }
