@@ -38,7 +38,8 @@ fn sign_config(input: &str, output: &str) -> Result<(), Box<dyn std::error::Erro
     let raw = fs::read(input)?;
     let _: Value = serde_json::from_slice(&raw)?;
     let secret = env::var("RUSTDESK_CUSTOM_SECRET_KEY")?;
-    let secret = base64::decode(&secret, base64::Variant::Original)?;
+    let secret = base64::decode(&secret, base64::Variant::Original)
+        .map_err(|_| "invalid base64 Ed25519 secret key")?;
     let secret = match secret.len() {
         sign::SECRETKEYBYTES => {
             sign::SecretKey::from_slice(&secret).ok_or("invalid Ed25519 secret key")?
