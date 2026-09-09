@@ -52,6 +52,7 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  RUSTDESK_CUSTOM_PUBLIC_KEY: "${{ secrets.RUSTDESK_CUSTOM_PUBLIC_KEY }}"
 
 jobs:
   generate-sbom:
@@ -247,6 +248,16 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           prefix-key: ${{ matrix.job.os }}
+
+      - name: Generate signed custom client configuration
+        if: ${{ secrets.CUSTOM_CLIENT_CONFIG_BASE64 != '' && secrets.RUSTDESK_CUSTOM_SECRET_KEY != '' && secrets.RUSTDESK_CUSTOM_PUBLIC_KEY != '' }}
+        env:
+          CUSTOM_CLIENT_CONFIG_BASE64: ${{ secrets.CUSTOM_CLIENT_CONFIG_BASE64 }}
+          RUSTDESK_CUSTOM_SECRET_KEY: ${{ secrets.RUSTDESK_CUSTOM_SECRET_KEY }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("custom-config.json", [Convert]::FromBase64String($env:CUSTOM_CLIENT_CONFIG_BASE64))
+          cargo run --locked --bin sign-custom-client -- sign custom-config.json custom.txt
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11

@@ -996,7 +996,7 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
+    if is_custom_client() && custom_update_repository().is_none() {
         return;
     }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
@@ -1005,19 +1005,48 @@ pub fn check_software_update() {
     }
 }
 
-// No need to check `danger_accept_invalid_cert` for now.
-// Because the url is always `https://api.rustdesk.com/version/latest`.
+async fn send_update_check_request(
+    client: &reqwest::Client,
+    url: &str,
+    request: &hbb_common::VersionCheckRequest,
+    is_custom: bool,
+) -> Result<reqwest::Response, reqwest::Error> {
+    if is_custom {
+        client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, "rustdesk-update-client")
+            .send()
+            .await
+    } else {
+        client.post(url).json(request).send().await
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
-    let (request, url) =
-        hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
+    let custom_repository = custom_update_repository();
+    let (request, url) = hbb_common::version_check_request(
+        hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string(),
+    );
+    let url = if let Some((owner, repository)) = &custom_repository {
+        format!("https://api.github.com/repos/{owner}/{repository}/releases/latest")
+    } else {
+        url
+    };
     let proxy_conf = Config::get_socks();
     let tls_url = get_url_for_tls(&url, &proxy_conf);
     let tls_type = get_cached_tls_type(tls_url);
     let is_tls_not_cached = tls_type.is_none();
     let tls_type = tls_type.unwrap_or(TlsType::Rustls);
     let client = create_http_client_async(tls_type, false);
-    let latest_release_response = match client.post(&url).json(&request).send().await {
+    let latest_release_response = match send_update_check_request(
+        &client,
+        &url,
+        &request,
+        custom_repository.is_some(),
+    )
+    .await
+    {
         Ok(resp) => {
             upsert_tls_cache(tls_url, tls_type, false);
             resp
@@ -1026,7 +1055,13 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             if is_tls_not_cached && err.is_request() {
                 let tls_type = TlsType::NativeTls;
                 let client = create_http_client_async(tls_type, false);
-                let resp = client.post(&url).json(&request).send().await?;
+                let resp = send_update_check_request(
+                    &client,
+                    &url,
+                    &request,
+                    custom_repository.is_some(),
+                )
+                .await?;
                 upsert_tls_cache(tls_url, tls_type, false);
                 resp
             } else {
@@ -1034,9 +1069,26 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             }
         }
     };
+    let latest_release_response = latest_release_response.error_for_status()?;
     let bytes = latest_release_response.bytes().await?;
-    let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
-    let response_url = resp.url;
+    let response_url = if let Some((owner, repository)) = custom_repository {
+        #[derive(serde::Deserialize)]
+        struct GithubRelease {
+            tag_name: String,
+        }
+
+        let release: GithubRelease = serde_json::from_slice(&bytes)?;
+        if !is_plain_github_component(&release.tag_name) {
+            bail!("Invalid GitHub release tag");
+        }
+        format!(
+            "https://github.com/{owner}/{repository}/releases/tag/{}",
+            release.tag_name
+        )
+    } else {
+        let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
+        resp.url
+    };
     let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
 
     if get_version_number(&latest_release_version) > get_version_number(crate::VERSION) {
@@ -1054,6 +1106,39 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
     }
     Ok(())
+}
+
+pub const CUSTOM_UPDATE_REPOSITORY: &str = "custom-update-repository";
+
+pub fn custom_update_repository() -> Option<(String, String)> {
+    let value = config::HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get(CUSTOM_UPDATE_REPOSITORY)
+        .cloned()?;
+    parse_github_repository(&value)
+}
+
+fn parse_github_repository(value: &str) -> Option<(String, String)> {
+    let mut parts = value.split('/');
+    let owner = parts.next()?;
+    let repository = parts.next()?;
+    if parts.next().is_some()
+        || !is_plain_github_component(owner)
+        || !is_plain_github_component(repository)
+    {
+        return None;
+    }
+    Some((owner.to_owned(), repository.to_owned()))
+}
+
+fn is_plain_github_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
 }
 
 #[inline]
@@ -2299,7 +2384,11 @@ pub fn read_custom_client(config: &str) {
         log::error!("Failed to decode custom client config");
         return;
     };
-    const KEY: &str = "5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=";
+    const KEY: &str = match option_env!("RUSTDESK_CUSTOM_PUBLIC_KEY") {
+        Some(key) if !key.is_empty() => key,
+        None => "5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=",
+        Some(_) => "5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=",
+    };
     let Some(pk) = get_rs_pk(KEY) else {
         log::error!("Failed to parse public key of custom client");
         return;
@@ -2781,6 +2870,23 @@ mod tests {
             Instant::now() + Duration::from_secs(1),
             Duration::from_secs(1),
         )
+    }
+
+    #[test]
+    fn github_update_repository_requires_owner_and_repository() {
+        assert_eq!(
+            parse_github_repository("example/desktop"),
+            Some(("example".to_owned(), "desktop".to_owned()))
+        );
+        for value in [
+            "example",
+            "example/desktop/extra",
+            "example/../desktop",
+            "https://github.com/example/desktop",
+            "example/desktop?tab=releases",
+        ] {
+            assert!(parse_github_repository(value).is_none(), "{value}");
+        }
     }
 
     #[test]

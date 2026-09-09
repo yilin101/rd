@@ -353,6 +353,16 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 }
 
 pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
+    let repository = crate::common::custom_update_repository()
+        .unwrap_or_else(|| ("rustdesk".to_owned(), "rustdesk".to_owned()));
+    get_update_download_file_from_url_for_repository(url, &repository.0, &repository.1)
+}
+
+fn get_update_download_file_from_url_for_repository(
+    url: &str,
+    expected_owner: &str,
+    expected_repo: &str,
+) -> Option<PathBuf> {
     let parsed = url::Url::parse(url).ok()?;
     // Check the raw prefix before Url normalizes default ports.
     if !url.starts_with("https://github.com/")
@@ -375,8 +385,8 @@ pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
     let tag = segments.next()?;
     let filename = segments.next()?;
 
-    if owner != "rustdesk"
-        || repo != "rustdesk"
+    if !owner.eq_ignore_ascii_case(expected_owner)
+        || !repo.eq_ignore_ascii_case(expected_repo)
         || releases != "releases"
         || download != "download"
         || tag.is_empty()
@@ -539,7 +549,7 @@ pub fn check_update_as_root() -> ResultType<bool> {
         log::info!("[root-update] Auto update is disabled, skipping.");
         return Ok(false);
     }
-    if crate::is_custom_client() {
+    if crate::is_custom_client() && crate::common::custom_update_repository().is_none() {
         log::info!("[root-update] Custom client detected, skipping stock update.");
         return Ok(false);
     }
@@ -656,7 +666,9 @@ pub fn check_update_as_root() -> ResultType<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::get_download_file_from_url;
+    use super::{
+        get_download_file_from_url, get_update_download_file_from_url_for_repository,
+    };
 
     #[test]
     fn update_download_file_accepts_expected_github_asset_urls() {
@@ -688,5 +700,23 @@ mod tests {
         ] {
             assert!(get_download_file_from_url(url).is_none(), "{url}");
         }
+    }
+
+    #[test]
+    fn update_download_file_accepts_only_the_configured_repository() {
+        let custom_url =
+            "https://github.com/example/desktop/releases/download/1.5.1/rustdesk-1.5.1-x86_64.exe";
+        assert!(get_update_download_file_from_url_for_repository(
+            custom_url,
+            "example",
+            "desktop"
+        )
+        .is_some());
+        assert!(get_update_download_file_from_url_for_repository(
+            custom_url,
+            "other",
+            "desktop"
+        )
+        .is_none());
     }
 }

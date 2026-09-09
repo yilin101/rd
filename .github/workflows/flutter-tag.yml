@@ -2,6 +2,12 @@ name: Flutter Tag Build
 
 on:
   workflow_dispatch:
+    inputs:
+      upload-tag:
+        description: "GitHub Release 标签，例如 custom-1.5.0"
+        required: true
+        default: "custom-1.5.0"
+        type: string
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -15,4 +21,4 @@ jobs:
     secrets: inherit
     with:
       upload-artifact: true
-      upload-tag: ${{ github.ref_name }}
+      upload-tag: ${{ inputs.upload-tag || github.ref_name }}

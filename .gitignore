@@ -58,3 +58,6 @@ libsciter.dylib
 flutter/web/
 # libdrmtap is cloned at build time by build.py (not a submodule)
 /third_party/libdrmtap/
+# Local custom client configuration; keep secrets and deployment settings out of Git.
+/custom-config.json
+/custom.txt

@@ -36,6 +36,16 @@ flutter_build_dir_2 = f'flutter/{flutter_build_dir}'
 skip_cargo = False
 
 
+def copy_custom_client_config():
+    """Include the locally generated signed custom client config in the Flutter bundle."""
+    source = os.path.join(REPO_ROOT, 'custom.txt')
+    if not os.path.isfile(source):
+        return
+    os.makedirs(os.path.join(REPO_ROOT, flutter_build_dir_2), exist_ok=True)
+    shutil.copy2(source, os.path.join(REPO_ROOT, flutter_build_dir_2, 'custom.txt'))
+    print(f'Included custom client config: {source}')
+
+
 def get_deb_arch() -> str:
     custom_arch = os.environ.get("DEB_ARCH")
     if custom_arch is None:
@@ -702,6 +712,7 @@ def build_flutter_deb(version, features):
         ffi_bindgen_function_refactor()
     os.chdir('flutter')
     system2('flutter build linux --release')
+    copy_custom_client_config()
     system2('mkdir -p tmpdeb/usr/bin/')
     system2('mkdir -p tmpdeb/usr/share/rustdesk')
     system2('mkdir -p tmpdeb/usr/share/rustdesk/files/systemd/')
@@ -906,6 +917,7 @@ def build_flutter_dmg(version, features):
     mac_arch = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64'
     system2(
         f'FLUTTER_XCODE_ARCHS={mac_arch} FLUTTER_XCODE_ONLY_ACTIVE_ARCH=YES flutter build macos --release')
+    copy_custom_client_config()
     system2('cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/')
     '''
     system2(
@@ -921,6 +933,7 @@ def build_flutter_arch_manjaro(version, features):
     ffi_bindgen_function_refactor()
     os.chdir('flutter')
     system2('flutter build linux --release')
+    copy_custom_client_config()
     system2(f'strip {flutter_build_dir}/lib/librustdesk.so')
     os.chdir('../res')
     system2('HBB=`pwd`/.. FLUTTER=1 makepkg -f')
@@ -934,6 +947,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
             exit(-1)
     os.chdir('flutter')
     system2('flutter build windows --release')
+    copy_custom_client_config()
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
